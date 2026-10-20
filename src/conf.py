@@ -25,10 +25,10 @@ PDF_METADATA: dict[str, dict[str, str]] = {
 }
 
 # OpenAI
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Base de datos (Postgres local con pgvector)
-DATABASE_URL = os.environ["DATABASE_URL"]
+DATABASE_URL = os.getenv("DATABASE_URL")
 VECTOR_TABLE = "chunks"
 
 # Embeddings
@@ -41,3 +41,8 @@ CHAT_MODEL = os.getenv("CHAT_MODEL", "gpt-4o-mini")
 
 # Recuperación
 TOP_K = 5  # chunks que se pasan como contexto al LLM
+
+def ensure_dirs() -> None:
+    """Crear los directorios de datos intermedios si no existen todavía"""
+    EXTRACTED_DIR.mkdir(parents=True, exist_ok=True)
+    CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
