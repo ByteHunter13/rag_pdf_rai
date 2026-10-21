@@ -1,65 +1,60 @@
 """
-3. Embeddings con sentence-transformers
+3. Embeddings con la API de OpenAI
 
 Objetivo: dado un texto (chunk o pregunta del usuario), producir su vector de embedding
 usando EMBEDDING_MODEL
 
-Este módulo lo usan tanto el pipeline de ingesta (embeber chunks antes de guardarlos en 
+Este módulo lo usan tanto el pipeline de ingesta (embeber chunks antes de guardarlos en
 Postgres) como el retriever (embeber la pregunta del usuario)
 """
 
-from functools import lru_cache
-from sentence_transformers import SentenceTransformer
+from src.conf import EMBEDDING_BATCH_SIZE, EMBEDDING_DIM, EMBEDDING_MODEL
+from src.openai_api import post
 
-from src.conf import EMBEDDING_DIM, EMBEDDING_MODEL
-
-@lru_cache(maxsize=1)
-def get_model() -> SentenceTransformer:
+def embed_batch(texts: list[str]) -> list[list[float]]:
     """
-    Carga (y cachea en memoria) el modelo de embeddings
+    Embebe un lote de textos con una sola request a /embeddings
 
-    - `SentenceTransformer(EMBEDDING_MODEL)` - la primera vez que se ejecuta descarga el
-    modelo y lo cachea en disco; las siguientes veces carga directo del caché
-    - Usa `@lru_cache` (ya puesto arriba) para no recargar el modelo en memoria cada
-    vez que se llama a esta función dentro del mismo proceso - cargarlo es lento, embeber
-    con el modelo ya cargado es rápido
-    - Verifica que `model.get_sentence_embedding_dimension()` coincida con EMBEDDING_DIM(),
-    si no coincide, el INSERT a Postgres (columna`vector()`) va a fallar más adelante,
-    mejor detectarlo aquí
+    - `dimensions` se manda explícito: si alguien cambia EMBEDDING_MODEL, la
+    API devuelve vectores del tamaño que espera la columna vector(...) en vez
+    de que el INSERT a Postgres falle más adelante
+    - La API documenta el campo `index` en cada resultado; se ordena por él
+    para no depender de que `data` venga en el mismo orden que `input`
     """
 
-    model = SentenceTransformer(EMBEDDING_MODEL)
+    response = post("/embeddings", {
+        "model": EMBEDDING_MODEL,
+        "input": texts,
+        "dimensions": EMBEDDING_DIM,
+    })
 
-    dim = model.get_embedding_dimension()
+    data = sorted(response["data"], key=lambda item: item["index"])
 
-    if dim != EMBEDDING_DIM:
-        raise ValueError(
-            f"{EMBEDDING_MODEL} produce vectores de {dim} dimensiones,"
-            f"pero EMBEDDING_DIM es {EMBEDDING_DIM}. Ajusta el .env y la "
-            f"columna vector(...) de schema.sql para que coincidan."
-        )
-
-    return model
-
+    return [item["embedding"] for item in data]
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
     """
-    Embebe una lista de textos y devuelve una lista de vectores (listas de floats, 
-    uno por texto, ene el mismo orden)
+    Embebe una lista de textos y devuelve una lista de vectores (listas de floats,
+    uno por texto, en el mismo orden)
+
+    Los vectores de OpenAI ya vienen con norma 1: coseno y producto punto dan
+    el mismo ranking, igual que antes con normalize_embeddings=True
     """
 
     if not texts:
         return []
 
-    vectors = get_model().encode(
-        texts,
-        # vectores de norma 1: coseno y producto dan el mismo ranking
-        normalize_embeddings=True,
-        batch_size=16,
-        show_progress_bar=len(texts)>32,
-    )
+    # La API rechaza strings vacíos con un 400 poco claro; mejor avisar aquí
+    # cuál es el texto problemático
+    for i, text in enumerate(texts):
+        if not text.strip():
+            raise ValueError(f"El texto en la posición {i} está vacío: no se puede embeber")
 
-    return vectors.tolist()
+    vectors: list[list[float]] = []
+    for start in range(0, len(texts), EMBEDDING_BATCH_SIZE):
+        vectors.extend(embed_batch(texts[start:start + EMBEDDING_BATCH_SIZE]))
+
+    return vectors
 
 def embed_query(query: str) -> list[float]:
     """

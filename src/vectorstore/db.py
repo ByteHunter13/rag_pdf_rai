@@ -73,7 +73,7 @@ def insert_chunks(conn: psycopg.Connection, document_id: int,
     # `documents` se upsertea por filename, pero `chunks` no tiene UNIQUE
     # así que sin este DELETE cada corrida duplicaría todo el contenido y 
     # el retrieval devolvería el mismo texto varias veces
-    conn.execute("DELETE FROM chunks WHERE document_id = %s", (document_id))
+    conn.execute("DELETE FROM chunks WHERE document_id = %s", (document_id,))
 
     rows = [
         (
@@ -99,7 +99,7 @@ def search_similar_chunks(conn: psycopg.Connection, query_embedding: list[float]
                           top_k: int, pdf_topic: str | None = None) -> list[dict[str, Any]]:
     """
     Busca los `top_k` chunks más similares (distancia coseno) a `query_embedding`, 
-    opcionalmente filtrando por `topic`
+    opcionalmente filtrando por `pdf_topic`
 
     Debe devolver una lista de dicts con al menos: texto, archivo (via join con documents),
     start_page, end_page, section, y la distancia/similitud (útil para depurar calidad de
@@ -115,14 +115,14 @@ def search_similar_chunks(conn: psycopg.Connection, query_embedding: list[float]
                 c.embedding <=> %(embedding)s AS distance
         FROM chunks c
         JOIN documents d ON d.id = c.document_id
-        WHERE (%(pdf_topic)s::text IS NULL OR d.pdf_topic)
+        WHERE (%(pdf_topic)s::text IS NULL OR d.pdf_topic = %(pdf_topic)s)
         ORDER BY c.embedding <=> %(embedding)s
         LIMIT %(top_k)s
     """
 
     params = {
         "embedding": Vector(query_embedding),
-        "topic": pdf_topic,
+        "pdf_topic": pdf_topic,
         "top_k": top_k
     }
 

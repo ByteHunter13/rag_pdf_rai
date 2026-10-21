@@ -15,8 +15,8 @@ CREATE TABLE IF NOT EXISTS documents (
     ingested_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- IMPORTANTE: 1024 debe coincidir con EMBEDDING_DIM en tu .env
--- (BAAI/bge-m3 produce vectores de 1024 dimensiones).
+-- IMPORTANTE: 1536 debe coincidir con EMBEDDING_DIM en src/conf.py
+-- (text-embedding-3-small produce vectores de 1536 dimensiones).
 CREATE TABLE IF NOT EXISTS chunks (
     id             SERIAL PRIMARY KEY,
     document_id    INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     start_page     INTEGER,
     end_page       INTEGER,
     section        TEXT,           -- ruta de headings, ej. "Especificaciones > Sensores"
-    embedding      vector(1024) NOT NULL
+    embedding      vector(1536) NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks (document_id);
